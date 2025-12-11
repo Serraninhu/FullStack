@@ -1,0 +1,27 @@
+{
+  "name": "SMPM",
+  "version": "1.0.0",
+  "description": "API REST CRUD de usuários com Node.js, Express e MongoDB (Compass local)",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env src/server.js",
+    "start": "NODE_ENV=production node src/server.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "google-auth-library": "^10.5.0",
+    "jwt-decode": "^4.0.0",
+    "mongoose": "^8.6.0",
+    "morgan": "^1.10.1",
+    "node": "^24.9.0",
+    "nodemon": "^3.1.10",
+    "swagger-autogen": "^2.23.7",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
+  }
+}

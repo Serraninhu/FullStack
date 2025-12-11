@@ -1,0 +1,478 @@
+import { Router } from "express";
+import Usuario from "../models/Usuario.js";
+
+const router = Router();
+
+/**
+ * @swagger
+ * /api/usuarios:
+ *   post:
+ *     tags: [Usuários]
+ *     summary: Criar novo usuário (Registro)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - email
+ *               - password
+ *             properties:
+ *               name:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Usuário criado com sucesso
+ *       400:
+ *         description: Email já cadastrado ou dados inválidos
+ */
+// ============================================
+// POST - CRIAR USUÁRIO (REGISTRO)
+// ============================================
+router.post("/", async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    // Verifica se email já existe
+    const usuarioExistente = await Usuario.findOne({ email });
+    if (usuarioExistente) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Email já cadastrado" 
+      });
+    }
+
+    // ✅ CORRETO: Usar new Usuario().save() para ativar o hook pre('save')
+    const usuario = new Usuario(req.body);
+    await usuario.save();
+    
+    // Retorna sem a senha
+    const usuarioSemSenha = {
+      _id: usuario._id,
+      name: usuario.name,
+      email: usuario.email,
+      role: usuario.role,
+      createdAt: usuario.createdAt
+    };
+    
+    return res.status(201).json({
+      success: true,
+      usuario: usuarioSemSenha,
+      message: "Usuário criado com sucesso!"
+    });
+  } catch (err) {
+    console.error('Erro ao criar usuário:', err);
+    return res.status(400).json({ 
+      success: false,
+      error: "Erro ao criar usuário", 
+      details: err.message 
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/usuarios/login:
+ *   post:
+ *     tags: [Usuários]
+ *     summary: Login de usuário
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login realizado com sucesso
+ *       401:
+ *         description: Email ou senha incorretos
+ */
+// ============================================
+// POST - LOGIN
+// ============================================
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validação de campos
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Email e senha são obrigatórios" 
+      });
+    }
+
+    // Busca usuário pelo email
+    const usuario = await Usuario.findOne({ email });
+    
+    if (!usuario) {
+      return res.status(401).json({ 
+        success: false,
+        error: "Email ou senha incorretos" 
+      });
+    }
+
+    // ✅ CORRETO: Usa o método comparePassword do model
+    const senhaValida = await usuario.comparePassword(password);
+    
+    if (!senhaValida) {
+      return res.status(401).json({ 
+        success: false,
+        error: "Email ou senha incorretos" 
+      });
+    }
+
+    // Login bem-sucedido - retorna sem senha
+    return res.json({
+      success: true,
+      usuario: {
+        _id: usuario._id,
+        name: usuario.name,
+        email: usuario.email,
+        role: usuario.role,
+        foto: usuario.foto || null
+      },
+      message: "Login realizado com sucesso!"
+    });
+  } catch (err) {
+    console.error('Erro ao fazer login:', err);
+    return res.status(500).json({ 
+      success: false,
+      error: "Erro ao fazer login",
+      details: err.message 
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/usuarios/google-login:
+ *   post:
+ *     tags: [Usuários]
+ *     summary: Login com Google
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - credential
+ *               - email
+ *               - nome
+ *             properties:
+ *               credential:
+ *                 type: string
+ *                 description: JWT token do Google
+ *               email:
+ *                 type: string
+ *               nome:
+ *                 type: string
+ *               picture:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login com Google realizado com sucesso
+ *       400:
+ *         description: Dados inválidos
+ *       500:
+ *         description: Erro no servidor
+ */
+// ============================================
+// POST - LOGIN COM GOOGLE
+// ============================================
+router.post("/google-login", async (req, res) => {
+  try {
+    const { credential, email, nome, picture } = req.body;
+
+    // Validação de campos obrigatórios
+    if (!email || !nome) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Email e nome são obrigatórios" 
+      });
+    }
+
+    // Verifica se o usuário já existe
+    let usuario = await Usuario.findOne({ email });
+
+    if (usuario) {
+      // Usuário já existe - atualiza foto se fornecida
+      if (picture && !usuario.foto) {
+        usuario.foto = picture;
+        usuario.loginGoogle = true;
+        await usuario.save();
+      }
+
+      return res.json({
+        success: true,
+        usuario: {
+          _id: usuario._id,
+          name: usuario.name,
+          email: usuario.email,
+          role: usuario.role,
+          foto: usuario.foto || picture
+        },
+        message: "Login com Google realizado com sucesso!"
+      });
+    } else {
+      // Cria novo usuário com dados do Google
+      const novoUsuario = new Usuario({
+        name: nome,
+        email: email,
+        foto: picture,
+        loginGoogle: true,
+        role: 'Usuario',
+        // Não precisa de senha para login do Google
+        // O campo password será null/undefined
+      });
+
+     
+      
+      await novoUsuario.save();
+
+      return res.status(201).json({
+        success: true,
+        usuario: {
+          _id: novoUsuario._id,
+          name: novoUsuario.name,
+          email: novoUsuario.email,
+          role: novoUsuario.role,
+          foto: novoUsuario.foto
+        },
+        message: "Conta criada com Google com sucesso!"
+      });
+    }
+  } catch (error) {
+    console.error('Erro no login do Google:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao processar login do Google',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/usuarios:
+ *   get:
+ *     tags: [Usuários]
+ *     summary: Buscar todos os usuários
+ *     responses:
+ *       200:
+ *         description: Lista de usuários
+ */
+// ============================================
+// GET - BUSCAR TODOS OS USUÁRIOS
+// ============================================
+router.get("/", async (_req, res) => {
+  try {
+    const usuarios = await Usuario.find()
+      .select('-password') // Não retorna a senha
+      .sort({ createdAt: -1 });
+    
+    return res.json({
+      success: true,
+      usuarios,
+      total: usuarios.length
+    });
+  } catch (err) {
+    console.error('Erro ao buscar usuários:', err);
+    return res.status(500).json({ 
+      success: false,
+      error: "Erro ao buscar usuários" 
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/usuarios/{id}:
+ *   get:
+ *     tags: [Usuários]
+ *     summary: Buscar usuário por ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Dados do usuário
+ *       404:
+ *         description: Usuário não encontrado
+ */
+// ============================================
+// GET - BUSCAR USUÁRIO POR ID
+// ============================================
+router.get("/:id", async (req, res) => {
+  try {
+    const usuario = await Usuario.findById(req.params.id).select('-password');
+    
+    if (!usuario) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Usuário não encontrado" 
+      });
+    }
+    
+    return res.json({
+      success: true,
+      usuario
+    });
+  } catch (err) {
+    console.error('Erro ao buscar usuário:', err);
+    return res.status(400).json({ 
+      success: false,
+      error: "ID inválido ou erro ao buscar usuário" 
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/usuarios/{id}:
+ *   put:
+ *     tags: [Usuários]
+ *     summary: Atualizar usuário
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Usuário atualizado
+ *       404:
+ *         description: Usuário não encontrado
+ */
+// ============================================
+// PUT - ATUALIZAR USUÁRIO
+// ============================================
+router.put("/:id", async (req, res) => {
+  try {
+    // ✅ CORREÇÃO CRÍTICA: Busca o usuário primeiro
+    const usuario = await Usuario.findById(req.params.id);
+    
+    if (!usuario) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Usuário não encontrado" 
+      });
+    }
+
+    // Atualiza os campos manualmente
+    if (req.body.name) usuario.name = req.body.name;
+    if (req.body.email) usuario.email = req.body.email;
+    if (req.body.role) usuario.role = req.body.role;
+    if (req.body.foto) usuario.foto = req.body.foto;
+    
+    // ⚠️ Se enviar nova senha, ela será criptografada pelo middleware
+    if (req.body.password) {
+      usuario.password = req.body.password;
+    }
+
+    // ✅ Usa .save() para disparar o hook pre('save')
+    await usuario.save();
+    
+    // Retorna sem a senha
+    const usuarioAtualizado = {
+      _id: usuario._id,
+      name: usuario.name,
+      email: usuario.email,
+      role: usuario.role,
+      foto: usuario.foto,
+      updatedAt: usuario.updatedAt
+    };
+    
+    return res.json({
+      success: true,
+      usuario: usuarioAtualizado,
+      message: "Usuário atualizado com sucesso!"
+    });
+  } catch (err) {
+    console.error('Erro ao atualizar usuário:', err);
+    return res.status(400).json({ 
+      success: false,
+      error: "Erro ao atualizar usuário", 
+      details: err.message 
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/usuarios/{id}:
+ *   delete:
+ *     tags: [Usuários]
+ *     summary: Deletar usuário
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Usuário deletado
+ *       404:
+ *         description: Usuário não encontrado
+ */
+// ============================================
+// DELETE - DELETAR USUÁRIO
+// ============================================
+router.delete("/:id", async (req, res) => {
+  try {
+    const usuario = await Usuario.findByIdAndDelete(req.params.id);
+    
+    if (!usuario) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Usuário não encontrado" 
+      });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      message: "Usuário deletado com sucesso",
+      usuario: {
+        _id: usuario._id,
+        email: usuario.email
+      }
+    });
+  } catch (err) {
+    console.error('Erro ao deletar usuário:', err);
+    return res.status(400).json({ 
+      success: false,
+      error: "Erro ao deletar usuário" 
+    });
+  }
+});
+
+export default router;
